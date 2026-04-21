@@ -183,7 +183,12 @@ export default function HomePage() {
     const result =
       authMode === "signin"
         ? await supabase.auth.signInWithPassword(credentials)
-        : await supabase.auth.signUp(credentials);
+        : await supabase.auth.signUp({
+            ...credentials,
+            options: {
+              emailRedirectTo: window.location.origin
+            }
+          });
 
     if (result.error) {
       setAuthMessage(result.error.message);
