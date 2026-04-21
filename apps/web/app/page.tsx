@@ -14,6 +14,7 @@ import {
 } from "@weatherwear/shared";
 import {
   CloudSun,
+  Info,
   Loader2,
   LogOut,
   MapPin,
@@ -450,13 +451,12 @@ export default function HomePage() {
               <option value="celsius">Celsius</option>
             </select>
 
-            <label
-              className="mt-4 block cursor-help text-sm font-medium text-slate-700"
-              htmlFor="sensitivity"
-              title="Personalizes outfit advice and comfort scores. Runs cold means the app treats cool weather as feeling colder; runs warm means it treats cool weather as easier to handle."
-            >
-              Temperature feel
-            </label>
+            <div className="mt-4 flex items-center gap-1.5">
+              <label className="block text-sm font-medium text-slate-700" htmlFor="sensitivity">
+                Temperature feel
+              </label>
+              <InfoTooltip text="Personalizes outfit advice and comfort scores. Runs cold treats cool weather as feeling colder; runs warm treats cool weather as easier to handle." />
+            </div>
             <select
               className="mt-2 w-full rounded-md border border-line bg-white px-3 py-2"
               id="sensitivity"
@@ -607,12 +607,10 @@ function WeatherCard({
               </p>
             </div>
             <div className="rounded-md bg-mist px-3 py-2 text-right">
-              <p
-                className="cursor-help text-xs font-medium uppercase text-slate-500"
-                title="Comfort score from 0 to 100 based on feels-like temperature, rain probability, wind speed, and your temperature feel preference."
-              >
-                Score
-              </p>
+              <div className="flex items-center justify-end gap-1.5">
+                <p className="text-xs font-medium uppercase text-slate-500">Score</p>
+                <InfoTooltip text="Comfort score from 0 to 100 based on feels-like temperature, rain probability, wind speed, and your temperature feel preference." />
+              </div>
               <p className="text-2xl font-semibold text-leaf">{advice?.score}</p>
             </div>
           </div>
@@ -651,6 +649,23 @@ function AdviceLine({ icon, text }: { icon: React.ReactNode; text: string }) {
       <span className="text-sky">{icon}</span>
       <span>{text}</span>
     </p>
+  );
+}
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        aria-label={text}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-500 hover:text-sky focus-visible:text-sky"
+        type="button"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      <span className="pointer-events-none absolute left-1/2 top-6 z-10 hidden w-56 -translate-x-1/2 rounded-md border border-line bg-ink px-3 py-2 text-left text-xs font-normal leading-snug text-white shadow-soft group-focus-within:block group-hover:block">
+        {text}
+      </span>
+    </span>
   );
 }
 
