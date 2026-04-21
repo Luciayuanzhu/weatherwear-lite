@@ -290,6 +290,29 @@ export default function HomePage() {
     setBusy(false);
   }
 
+  async function refreshWeatherNow() {
+    if (!session) return;
+    setBusy(true);
+    setCityMessage("");
+
+    try {
+      const response = await fetch("/api/refresh-weather", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Weather refresh failed.");
+      }
+      await loadDashboard(session.user.id);
+    } catch (error) {
+      setCityMessage(error instanceof Error ? error.message : "Weather refresh failed.");
+      setBusy(false);
+    }
+  }
+
   const unsavedDefaultCities = useMemo(() => {
     const savedSlugs = new Set(savedCities.map((city) => city.slug));
     const knownDefaults = cities.filter((city) => city.is_default);
@@ -413,7 +436,8 @@ export default function HomePage() {
           <WorkerStatus workerRun={workerRun} />
           <button
             className="inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium"
-            onClick={() => void loadDashboard(session.user.id)}
+            disabled={busy}
+            onClick={() => void refreshWeatherNow()}
             type="button"
           >
             <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />

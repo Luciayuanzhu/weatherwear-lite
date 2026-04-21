@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
+import { buildWeatherReport } from "../../../packages/shared/src/polling";
 
 type CityRow = {
   id: string;
@@ -10,22 +11,6 @@ type CityRow = {
   latitude: number | string;
   longitude: number | string;
   timezone: string | null;
-};
-
-type OpenMeteoForecast = {
-  current?: {
-    time?: string;
-    temperature_2m?: number;
-    apparent_temperature?: number;
-    precipitation?: number;
-    weather_code?: number;
-    wind_speed_10m?: number;
-  };
-  hourly?: {
-    time?: string[];
-    precipitation_probability?: Array<number | null>;
-    uv_index?: Array<number | null>;
-  };
 };
 
 const supabaseUrl = mustGetEnv("SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -80,58 +65,12 @@ async function pollOnce() {
 }
 
 async function pollCity(city: CityRow) {
-  const forecast = await fetchForecast(city);
-  const current = forecast.current;
+  const report = await buildWeatherReport(city);
 
-  if (!current || current.temperature_2m == null || current.apparent_temperature == null) {
-    throw new Error(`Open-Meteo returned no current weather for ${city.name}`);
-  }
-
-  const rainProbability = nextSixHourMax(forecast.hourly?.precipitation_probability);
-  const uvIndex = nextSixHourMax(forecast.hourly?.uv_index);
-  const summary = weatherCodeLabel(current.weather_code);
-
-  const { error } = await supabase.from("weather_reports").upsert(
-    {
-      city_id: city.id,
-      observed_at: new Date().toISOString(),
-      temperature_f: current.temperature_2m,
-      apparent_temperature_f: current.apparent_temperature,
-      precipitation_probability: rainProbability,
-      wind_speed_mph: current.wind_speed_10m ?? 0,
-      weather_code: current.weather_code ?? null,
-      uv_index: uvIndex,
-      summary,
-      raw: forecast
-    },
-    { onConflict: "city_id" }
-  );
+  const { error } = await supabase.from("weather_reports").upsert(report, { onConflict: "city_id" });
 
   if (error) throw error;
-  console.log(`Updated ${city.name}: ${Math.round(current.temperature_2m)}F, ${summary}`);
-}
-
-async function fetchForecast(city: CityRow): Promise<OpenMeteoForecast> {
-  const url = new URL("https://api.open-meteo.com/v1/forecast");
-  url.searchParams.set("latitude", String(city.latitude));
-  url.searchParams.set("longitude", String(city.longitude));
-  url.searchParams.set(
-    "current",
-    "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m"
-  );
-  url.searchParams.set("hourly", "precipitation_probability,uv_index");
-  url.searchParams.set("temperature_unit", "fahrenheit");
-  url.searchParams.set("wind_speed_unit", "mph");
-  url.searchParams.set("precipitation_unit", "inch");
-  url.searchParams.set("forecast_days", "1");
-  url.searchParams.set("timezone", city.timezone ?? "auto");
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Open-Meteo ${response.status} for ${city.name}`);
-  }
-
-  return (await response.json()) as OpenMeteoForecast;
+  console.log(`Updated ${city.name}: ${Math.round(report.temperature_f)}F, ${report.summary}`);
 }
 
 async function startWorkerRun(): Promise<string> {
@@ -164,34 +103,10 @@ async function finishWorkerRun(
   if (error) throw error;
 }
 
-function nextSixHourMax(values?: Array<number | null>): number {
-  if (!values?.length) return 0;
-  return Math.round(
-    Math.max(
-      0,
-      ...values
-        .slice(0, 6)
-        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
-    )
-  );
-}
-
 function mustGetEnv(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
   if (!value) throw new Error(`Missing required env var: ${name}`);
   return value;
-}
-
-function weatherCodeLabel(code?: number | null): string {
-  if (code == null) return "Weather";
-  if (code === 0) return "Clear";
-  if ([1, 2, 3].includes(code)) return "Partly cloudy";
-  if ([45, 48].includes(code)) return "Fog";
-  if ([51, 53, 55, 56, 57].includes(code)) return "Drizzle";
-  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "Rain";
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return "Snow";
-  if ([95, 96, 99].includes(code)) return "Storms";
-  return "Weather";
 }
 
 main().catch((error) => {
