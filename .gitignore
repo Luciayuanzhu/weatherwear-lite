@@ -6,7 +6,7 @@ dist
 .env.*.local
 .vercel
 .railway
+supabase/.temp
 coverage
 *.tsbuildinfo
 .DS_Store
-
