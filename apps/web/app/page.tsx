@@ -47,6 +47,8 @@ export default function HomePage() {
   const [authMessage, setAuthMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState("");
   const [cities, setCities] = useState<City[]>([]);
   const [savedCities, setSavedCities] = useState<City[]>([]);
   const [reports, setReports] = useState<Record<string, WeatherReport>>({});
@@ -112,50 +114,63 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  async function loadDashboard(userId: string) {
-    setBusy(true);
-    setCityMessage("");
+  async function loadDashboard(
+    userId: string,
+    options: { showLoading?: boolean; clearCityMessage?: boolean } = {}
+  ) {
+    const { showLoading = true, clearCityMessage = true } = options;
+    if (showLoading) setBusy(true);
+    if (clearCityMessage) setCityMessage("");
 
-    await supabase.from("profiles").upsert({
-      user_id: userId,
-      email: session?.user.email ?? null
-    });
+    try {
+      await supabase.from("profiles").upsert({
+        user_id: userId,
+        email: session?.user.email ?? null
+      });
 
-    const preferenceRow = await getOrCreatePreferences(userId);
-    setPreferences(preferenceRow);
+      const preferenceRow = await getOrCreatePreferences(userId);
+      setPreferences(preferenceRow);
 
-    const [{ data: allCities }, { data: links }, { data: latestRun }] = await Promise.all([
-      supabase.from("cities").select("*").order("is_default", { ascending: false }).order("name"),
-      supabase.from("user_cities").select("city_id, cities(*)").order("created_at"),
-      supabase.from("worker_runs").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle()
-    ]);
+      const [{ data: allCities }, { data: links }, { data: latestRun }] = await Promise.all([
+        supabase.from("cities").select("*").order("is_default", { ascending: false }).order("name"),
+        supabase.from("user_cities").select("city_id, cities(*)").order("created_at"),
+        supabase
+          .from("worker_runs")
+          .select("*")
+          .order("started_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      ]);
 
-    const availableCities = (allCities ?? []) as City[];
-    const userCities = ((links ?? []) as CityLinkRow[])
-      .map((row) => (Array.isArray(row.cities) ? row.cities[0] : row.cities))
-      .filter((city): city is City => Boolean(city));
+      const availableCities = (allCities ?? []) as City[];
+      const userCities = ((links ?? []) as CityLinkRow[])
+        .map((row) => (Array.isArray(row.cities) ? row.cities[0] : row.cities))
+        .filter((city): city is City => Boolean(city));
 
-    setCities(availableCities);
-    setSavedCities(userCities);
-    savedCityIdsRef.current = new Set(userCities.map((city) => city.id));
-    setWorkerRun((latestRun as WorkerRun | null) ?? null);
+      setCities(availableCities);
+      setSavedCities(userCities);
+      savedCityIdsRef.current = new Set(userCities.map((city) => city.id));
+      setWorkerRun((latestRun as WorkerRun | null) ?? null);
 
-    if (userCities.length > 0) {
-      const { data: weatherRows } = await supabase
-        .from("weather_reports")
-        .select("*")
-        .in(
-          "city_id",
-          userCities.map((city) => city.id)
+      if (userCities.length > 0) {
+        const { data: weatherRows } = await supabase
+          .from("weather_reports")
+          .select("*")
+          .in(
+            "city_id",
+            userCities.map((city) => city.id)
+          );
+
+        const nextReports = Object.fromEntries(
+          ((weatherRows ?? []) as WeatherReport[]).map((report) => [report.city_id, report])
         );
-
-      const nextReports = Object.fromEntries(
-        ((weatherRows ?? []) as WeatherReport[]).map((report) => [report.city_id, report])
-      );
-      setReports(nextReports);
+        setReports(nextReports);
+      } else {
+        setReports({});
+      }
+    } finally {
+      if (showLoading) setBusy(false);
     }
-
-    setBusy(false);
   }
 
   async function getOrCreatePreferences(userId: string): Promise<UserPreferences> {
@@ -214,11 +229,15 @@ export default function HomePage() {
   async function addExistingCity(city: City) {
     if (!session) return;
     setCityMessage("");
-    await supabase.from("user_cities").upsert({
-      user_id: session.user.id,
-      city_id: city.id
-    });
-    await loadDashboard(session.user.id);
+    setBusy(true);
+
+    try {
+      await saveCityAndRefresh(city);
+    } catch (error) {
+      setCityMessage(error instanceof Error ? error.message : "Could not add city.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function removeCity(cityId: string) {
@@ -236,80 +255,125 @@ export default function HomePage() {
     setCityMessage("");
     setBusy(true);
 
-    const response = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-        term
-      )}&count=1&language=en&format=json`
-    );
-    const payload = (await response.json()) as {
-      results?: Array<{
-        name: string;
-        country: string;
-        country_code?: string;
-        admin1?: string;
-        latitude: number;
-        longitude: number;
-        timezone?: string;
-      }>;
-    };
-    const match = payload.results?.[0];
+    try {
+      const response = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+          term
+        )}&count=1&language=en&format=json`
+      );
+      const payload = (await response.json()) as {
+        results?: Array<{
+          name: string;
+          country: string;
+          country_code?: string;
+          admin1?: string;
+          latitude: number;
+          longitude: number;
+          timezone?: string;
+        }>;
+      };
+      const match = payload.results?.[0];
 
-    if (!match) {
-      setCityMessage("City not found.");
+      if (!match) {
+        setCityMessage("City not found.");
+        return;
+      }
+
+      const slug = citySlug(match.name, match.country_code);
+      const { data: city, error } = await supabase
+        .from("cities")
+        .upsert(
+          {
+            slug,
+            name: match.name,
+            country: match.country,
+            admin1: match.admin1 ?? null,
+            latitude: match.latitude,
+            longitude: match.longitude,
+            timezone: match.timezone ?? "auto",
+            is_default: false
+          },
+          { onConflict: "slug" }
+        )
+        .select("*")
+        .single();
+
+      if (error || !city) {
+        setCityMessage(error?.message ?? "Could not add city.");
+        return;
+      }
+
+      await saveCityAndRefresh(city as City);
+      setQuery("");
+    } catch (error) {
+      setCityMessage(error instanceof Error ? error.message : "Could not add city.");
+    } finally {
       setBusy(false);
-      return;
     }
-
-    const slug = citySlug(match.name, match.country_code);
-    const { data: city, error } = await supabase
-      .from("cities")
-      .upsert(
-        {
-          slug,
-          name: match.name,
-          country: match.country,
-          admin1: match.admin1 ?? null,
-          latitude: match.latitude,
-          longitude: match.longitude,
-          timezone: match.timezone ?? "auto",
-          is_default: false
-        },
-        { onConflict: "slug" }
-      )
-      .select("*")
-      .single();
-
-    if (error || !city) {
-      setCityMessage(error?.message ?? "Could not add city.");
-      setBusy(false);
-      return;
-    }
-
-    await addExistingCity(city as City);
-    setQuery("");
-    setBusy(false);
   }
 
-  async function refreshWeatherNow() {
+  async function saveCityAndRefresh(city: City) {
     if (!session) return;
-    setBusy(true);
+    const { error } = await supabase.from("user_cities").upsert({
+      user_id: session.user.id,
+      city_id: city.id
+    });
+
+    if (error) throw error;
+
+    setCityMessage(`${city.name} added. Fetching current weather...`);
+    const refreshed = await refreshWeatherNow({
+      cityId: city.id,
+      reload: false,
+      successMessage: `${city.name} weather updated just now.`
+    });
+
+    await loadDashboard(session.user.id, { showLoading: false, clearCityMessage: false });
+    setCityMessage(
+      refreshed
+        ? `${city.name} is tracking with current weather.`
+        : `${city.name} was added. Use Refresh if weather is still pending.`
+    );
+  }
+
+  async function refreshWeatherNow(
+    options: { cityId?: string; reload?: boolean; successMessage?: string } = {}
+  ): Promise<boolean> {
+    if (!session) return false;
+    const { cityId, reload = true, successMessage } = options;
+    setRefreshing(true);
+    setRefreshMessage("Refreshing weather...");
     setCityMessage("");
 
     try {
       const response = await fetch("/api/refresh-weather", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.access_token}`
-        }
+          Authorization: `Bearer ${session.access_token}`,
+          ...(cityId ? { "Content-Type": "application/json" } : {})
+        },
+        body: cityId ? JSON.stringify({ cityId }) : undefined
       });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        citiesPolled?: number;
+      } | null;
+
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(payload?.error ?? "Weather refresh failed.");
       }
-      await loadDashboard(session.user.id);
+
+      const cityCount = payload?.citiesPolled ?? 0;
+      setRefreshMessage(successMessage ?? `Updated ${cityCount} ${cityCount === 1 ? "city" : "cities"} just now.`);
+      if (reload) {
+        await loadDashboard(session.user.id, { showLoading: false, clearCityMessage: false });
+      }
+      return true;
     } catch (error) {
-      setCityMessage(error instanceof Error ? error.message : "Weather refresh failed.");
-      setBusy(false);
+      setRefreshMessage(error instanceof Error ? error.message : "Weather refresh failed.");
+      return false;
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -322,6 +386,15 @@ export default function HomePage() {
 
     return [...knownDefaults, ...(fallbackDefaults as City[])].filter((city) => !savedSlugs.has(city.slug));
   }, [cities, savedCities]);
+
+  const latestWeatherUpdatedAt = useMemo(() => {
+    const timestamps = Object.values(reports)
+      .map((report) => new Date(report.updated_at).getTime())
+      .filter((value) => Number.isFinite(value));
+
+    if (!timestamps.length) return null;
+    return new Date(Math.max(...timestamps)).toISOString();
+  }, [reports]);
 
   if (loading) {
     return (
@@ -432,25 +505,29 @@ export default function HomePage() {
             <p className="text-sm text-slate-600">{session.user.email}</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <WorkerStatus workerRun={workerRun} />
-          <button
-            className="inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium"
-            disabled={busy}
-            onClick={() => void refreshWeatherNow()}
-            type="button"
-          >
-            <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-          <button
-            className="inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium"
-            onClick={() => supabase.auth.signOut()}
-            type="button"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
+        <div className="flex flex-col items-start gap-2 md:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            <WorkerStatus workerRun={workerRun} />
+            <WeatherUpdateStatus updatedAt={latestWeatherUpdatedAt} />
+            <button
+              className="inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium disabled:opacity-60"
+              disabled={busy || refreshing}
+              onClick={() => void refreshWeatherNow()}
+              type="button"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Refreshing" : "Refresh"}
+            </button>
+            <button
+              className="inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium"
+              onClick={() => supabase.auth.signOut()}
+              type="button"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
+          {refreshMessage ? <p className="text-sm text-slate-600">{refreshMessage}</p> : null}
         </div>
       </header>
 
@@ -512,7 +589,7 @@ export default function HomePage() {
               <button
                 aria-label="Add city"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-leaf text-white disabled:opacity-60"
-                disabled={busy || !query.trim()}
+                disabled={busy || refreshing || !query.trim()}
                 onClick={searchAndAddCity}
                 title="Add city"
                 type="button"
@@ -523,9 +600,10 @@ export default function HomePage() {
             {cityMessage ? <p className="mt-3 text-sm text-sun">{cityMessage}</p> : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
-              {unsavedDefaultCities.slice(0, 7).map((city) => (
+              {unsavedDefaultCities.slice(0, 20).map((city) => (
                 <button
-                  className="rounded-md border border-line bg-mist px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                  className="rounded-md border border-line bg-mist px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-60"
+                  disabled={busy || refreshing}
                   key={city.slug}
                   onClick={() => addExistingCity(city)}
                   type="button"
@@ -550,7 +628,9 @@ export default function HomePage() {
           {savedCities.length === 0 ? (
             <section className="rounded-lg border border-dashed border-line bg-field p-8 text-center">
               <MapPin className="mx-auto h-8 w-8 text-sky" />
-              <p className="mt-3 text-sm text-slate-600">Add a city to start tracking weather.</p>
+              <p className="mt-3 text-sm text-slate-600">
+                Search a city or choose a default city to start tracking weather.
+              </p>
             </section>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -559,8 +639,10 @@ export default function HomePage() {
                   city={city}
                   key={city.id}
                   onRemove={() => removeCity(city.id)}
+                  onRefresh={() => void refreshWeatherNow({ cityId: city.id })}
                   preferences={preferences}
                   report={reports[city.id]}
+                  refreshing={refreshing}
                 />
               ))}
             </div>
@@ -575,12 +657,16 @@ function WeatherCard({
   city,
   report,
   preferences,
-  onRemove
+  onRemove,
+  onRefresh,
+  refreshing
 }: {
   city: City;
   report?: WeatherReport;
   preferences: UserPreferences | null;
   onRemove: () => void;
+  onRefresh: () => void;
+  refreshing: boolean;
 }) {
   const unit = preferences?.temp_unit ?? DEFAULT_PREFERENCES.temp_unit;
   const advice = report
@@ -596,8 +682,15 @@ function WeatherCard({
     : null;
 
   return (
-    <article className="rounded-lg border border-line bg-field p-4 shadow-soft">
-      <div className="flex items-start justify-between gap-3">
+    <article className="relative isolate overflow-hidden rounded-lg border border-line bg-field p-4 shadow-soft">
+      {report ? (
+        <WeatherOverlay
+          observedAt={report.observed_at}
+          timezone={city.timezone}
+          weatherCode={report.weather_code}
+        />
+      ) : null}
+      <div className="relative z-10 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold">{city.name}</h3>
           <p className="text-sm text-slate-600">
@@ -616,11 +709,21 @@ function WeatherCard({
       </div>
 
       {!report ? (
-        <div className="mt-8 rounded-md bg-mist p-4 text-sm text-slate-600">
-          Waiting for the worker to poll this city.
+        <div className="relative z-10 mt-8 rounded-md bg-mist p-4 text-sm text-slate-600">
+          <p className="font-medium text-ink">Waiting for current weather</p>
+          <p className="mt-1">This city will fill in on the next refresh.</p>
+          <button
+            className="mt-3 inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium text-ink disabled:opacity-60"
+            disabled={refreshing}
+            onClick={onRefresh}
+            type="button"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Fetch now
+          </button>
         </div>
       ) : (
-        <>
+        <div className="relative z-10">
           <div className="mt-5 flex items-end justify-between gap-4">
             <div>
               <p className="text-4xl font-semibold leading-none">
@@ -652,7 +755,7 @@ function WeatherCard({
           </div>
 
           <p className="mt-5 text-xs text-slate-500">Updated {relativeTime(report.updated_at)}</p>
-        </>
+        </div>
       )}
     </article>
   );
@@ -676,6 +779,63 @@ function AdviceLine({ icon, text }: { icon: React.ReactNode; text: string }) {
   );
 }
 
+function WeatherOverlay({
+  weatherCode,
+  observedAt,
+  timezone
+}: {
+  weatherCode?: number | null;
+  observedAt?: string | null;
+  timezone?: string | null;
+}) {
+  const effect = weatherEffect(weatherCode, observedAt, timezone);
+
+  return (
+    <div aria-hidden="true" className={`weather-overlay weather-${effect}`}>
+      <span className="weather-layer weather-layer-one" />
+      <span className="weather-layer weather-layer-two" />
+    </div>
+  );
+}
+
+function weatherEffect(
+  weatherCode?: number | null,
+  observedAt?: string | null,
+  timezone?: string | null
+) {
+  if (weatherCode === 0) return isNight(observedAt, timezone) ? "stars" : "sun";
+  if (weatherCode != null && [1, 2, 3].includes(weatherCode)) return "clouds";
+  if (weatherCode != null && [45, 48].includes(weatherCode)) return "fog";
+  if (weatherCode != null && [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(weatherCode)) {
+    return "rain";
+  }
+  if (weatherCode != null && [71, 73, 75, 77, 85, 86].includes(weatherCode)) return "snow";
+  if (weatherCode != null && [95, 96, 99].includes(weatherCode)) return "storm";
+  return "calm";
+}
+
+function isNight(observedAt?: string | null, timezone?: string | null) {
+  const date = observedAt ? new Date(observedAt) : null;
+  if (!date || Number.isNaN(date.getTime())) return false;
+
+  if (timezone && timezone !== "auto") {
+    try {
+      const hour = Number(
+        new Intl.DateTimeFormat("en-US", {
+          hour: "2-digit",
+          hourCycle: "h23",
+          timeZone: timezone
+        }).format(date)
+      );
+      return hour < 6 || hour >= 19;
+    } catch {
+      return date.getUTCHours() < 6 || date.getUTCHours() >= 19;
+    }
+  }
+
+  return date.getUTCHours() < 6 || date.getUTCHours() >= 19;
+}
+
 function InfoTooltip({ text }: { text: string }) {
   return (
     <span className="group relative inline-flex">
@@ -689,6 +849,14 @@ function InfoTooltip({ text }: { text: string }) {
       <span className="pointer-events-none absolute left-1/2 top-6 z-10 hidden w-56 -translate-x-1/2 rounded-md border border-line bg-ink px-3 py-2 text-left text-xs font-normal leading-snug text-white shadow-soft group-focus-within:block group-hover:block">
         {text}
       </span>
+    </span>
+  );
+}
+
+function WeatherUpdateStatus({ updatedAt }: { updatedAt: string | null }) {
+  return (
+    <span className="rounded-md border border-line bg-field px-3 py-2 text-sm text-slate-600">
+      Weather {updatedAt ? relativeTime(updatedAt) : "pending"}
     </span>
   );
 }
@@ -711,7 +879,7 @@ function WorkerStatus({ workerRun }: { workerRun: WorkerRun | null }) {
 
   return (
     <span className={`rounded-md border px-3 py-2 text-sm ${tone}`}>
-      Worker {workerRun.status} · {relativeTime(workerRun.started_at)}
+      Worker {workerRun.status} · {relativeTime(workerRun.finished_at ?? workerRun.started_at)}
     </span>
   );
 }

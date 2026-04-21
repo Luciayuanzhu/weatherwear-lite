@@ -30,9 +30,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing auth token" }, { status: 401 });
   }
 
-  const { error: authError } = await supabase.auth.getUser(token);
-  if (authError) {
+  const { data: authData, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !authData.user) {
     return NextResponse.json({ error: "Invalid auth token" }, { status: 401 });
+  }
+
+  const body = (await request.json().catch(() => null)) as { cityId?: string } | null;
+  const cityId = typeof body?.cityId === "string" && body.cityId.trim() ? body.cityId.trim() : null;
+
+  if (cityId) {
+    const { data: link, error: linkError } = await supabase
+      .from("user_cities")
+      .select("city_id")
+      .eq("user_id", authData.user.id)
+      .eq("city_id", cityId)
+      .maybeSingle();
+
+    if (linkError) {
+      return NextResponse.json({ error: linkError.message }, { status: 500 });
+    }
+
+    if (!link) {
+      return NextResponse.json({ error: "City is not saved for this user" }, { status: 403 });
+    }
   }
 
   async function finishRun(
@@ -65,10 +85,16 @@ export async function POST(request: Request) {
   let citiesPolled = 0;
 
   try {
-    const { data: cities, error: cityError } = await supabase
+    let cityQuery = supabase
       .from("cities")
       .select("id, slug, name, country, admin1, latitude, longitude, timezone")
       .order("name");
+
+    if (cityId) {
+      cityQuery = cityQuery.eq("id", cityId);
+    }
+
+    const { data: cities, error: cityError } = await cityQuery;
 
     if (cityError) throw cityError;
 

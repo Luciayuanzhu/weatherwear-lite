@@ -30,3 +30,212 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+.weather-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weather-layer,
+.weather-overlay::before,
+.weather-overlay::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.weather-calm {
+  background: linear-gradient(145deg, rgba(53, 111, 159, 0.06), rgba(47, 125, 87, 0.04));
+}
+
+.weather-sun {
+  background:
+    radial-gradient(circle at 82% 18%, rgba(184, 115, 32, 0.28) 0 34px, rgba(184, 115, 32, 0) 36px),
+    linear-gradient(145deg, rgba(184, 115, 32, 0.12), rgba(53, 111, 159, 0.05) 62%);
+}
+
+.weather-sun .weather-layer-one {
+  inset: -20%;
+  background:
+    linear-gradient(115deg, transparent 36%, rgba(184, 115, 32, 0.12) 43%, transparent 50%),
+    linear-gradient(155deg, transparent 42%, rgba(184, 115, 32, 0.1) 48%, transparent 55%);
+  animation: weather-drift 8s ease-in-out infinite alternate;
+}
+
+.weather-stars {
+  background: linear-gradient(145deg, rgba(32, 36, 42, 0.16), rgba(53, 111, 159, 0.12));
+}
+
+.weather-stars .weather-layer-one,
+.weather-stars .weather-layer-two {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.85) 0 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.7) 0 1px, transparent 1.5px);
+  background-position:
+    12px 18px,
+    46px 34px;
+  background-size:
+    58px 58px,
+    82px 82px;
+  opacity: 0.45;
+  animation: weather-twinkle 4s ease-in-out infinite alternate;
+}
+
+.weather-clouds {
+  background: linear-gradient(150deg, rgba(53, 111, 159, 0.08), rgba(217, 225, 234, 0.22));
+}
+
+.weather-clouds .weather-layer-one,
+.weather-fog .weather-layer-one {
+  inset: 16% -35%;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent),
+    linear-gradient(90deg, transparent, rgba(217, 225, 234, 0.55), transparent);
+  background-position:
+    0 22%,
+    0 58%;
+  background-size:
+    70% 22%,
+    86% 20%;
+  background-repeat: repeat-x;
+  filter: blur(10px);
+  opacity: 0.82;
+  animation: weather-slide 13s linear infinite;
+}
+
+.weather-rain,
+.weather-storm {
+  background: linear-gradient(145deg, rgba(53, 111, 159, 0.14), rgba(32, 36, 42, 0.05));
+}
+
+.weather-rain .weather-layer-one,
+.weather-storm .weather-layer-one {
+  inset: -30%;
+  background-image: repeating-linear-gradient(
+    112deg,
+    transparent 0 14px,
+    rgba(53, 111, 159, 0.34) 14px 16px,
+    transparent 16px 27px
+  );
+  animation: weather-rain 0.9s linear infinite;
+}
+
+.weather-rain .weather-layer-two,
+.weather-storm .weather-layer-two {
+  inset: -30%;
+  background-image: repeating-linear-gradient(
+    112deg,
+    transparent 0 24px,
+    rgba(32, 36, 42, 0.1) 24px 25px,
+    transparent 25px 42px
+  );
+  animation: weather-rain 1.25s linear infinite;
+}
+
+.weather-snow {
+  background: linear-gradient(145deg, rgba(217, 225, 234, 0.35), rgba(53, 111, 159, 0.06));
+}
+
+.weather-snow .weather-layer-one,
+.weather-snow .weather-layer-two {
+  inset: -20%;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1.5px, transparent 2px),
+    radial-gradient(circle, rgba(217, 225, 234, 0.95) 0 1.5px, transparent 2px);
+  background-position:
+    10px 12px,
+    38px 32px;
+  background-size:
+    52px 52px,
+    76px 76px;
+  animation: weather-snow 9s linear infinite;
+}
+
+.weather-fog {
+  background: linear-gradient(145deg, rgba(217, 225, 234, 0.42), rgba(255, 255, 255, 0.24));
+}
+
+.weather-fog .weather-layer-two {
+  inset: 4% -40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+  filter: blur(16px);
+  opacity: 0.75;
+  animation: weather-slide 18s linear infinite reverse;
+}
+
+.weather-storm::after {
+  background: rgba(255, 255, 255, 0.88);
+  opacity: 0;
+  animation: weather-flash 7s steps(1, end) infinite;
+}
+
+@keyframes weather-rain {
+  from {
+    transform: translate3d(-28px, -28px, 0);
+  }
+  to {
+    transform: translate3d(28px, 28px, 0);
+  }
+}
+
+@keyframes weather-snow {
+  from {
+    transform: translate3d(0, -18px, 0);
+  }
+  to {
+    transform: translate3d(18px, 40px, 0);
+  }
+}
+
+@keyframes weather-slide {
+  from {
+    transform: translateX(-8%);
+  }
+  to {
+    transform: translateX(8%);
+  }
+}
+
+@keyframes weather-drift {
+  from {
+    transform: rotate(-2deg) translateX(-2%);
+  }
+  to {
+    transform: rotate(2deg) translateX(2%);
+  }
+}
+
+@keyframes weather-twinkle {
+  from {
+    opacity: 0.28;
+  }
+  to {
+    opacity: 0.58;
+  }
+}
+
+@keyframes weather-flash {
+  0%,
+  92%,
+  100% {
+    opacity: 0;
+  }
+  93% {
+    opacity: 0.42;
+  }
+  94% {
+    opacity: 0;
+  }
+  96% {
+    opacity: 0.22;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-layer,
+  .weather-overlay::after {
+    animation: none;
+  }
+}
