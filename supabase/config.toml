@@ -1,0 +1,16 @@
+project_id = "weatherwear-lite"
+
+[auth]
+enabled = true
+site_url = "https://weatherwear-lite.vercel.app"
+additional_redirect_urls = [
+  "https://weatherwear-lite.vercel.app",
+  "https://weatherwear-lite.vercel.app/**",
+  "http://localhost:3000",
+  "http://localhost:3000/**"
+]
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
