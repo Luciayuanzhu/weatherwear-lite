@@ -63,7 +63,7 @@ RUN_ONCE=true npm run dev:worker
 - Env vars:
   - `SUPABASE_URL`
   - `SUPABASE_SERVICE_ROLE_KEY`
-  - `POLL_INTERVAL_MS=600000`
+  - `POLL_INTERVAL_MS=60000`
   - `RUN_ONCE=false`
 
 ## Assignment Notes
@@ -73,4 +73,3 @@ RUN_ONCE=true npm run dev:worker
 - The worker polls a live public weather API.
 - Supabase Realtime pushes new weather rows to the frontend.
 - `CLAUDE.md` documents the architecture.
-

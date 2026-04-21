@@ -17,7 +17,7 @@ WeatherWear Lite is a small multi-service system for Assignment 4. It polls live
 ### Worker: `apps/worker`
 
 - Node.js worker deployed to Railway.
-- Polls Open-Meteo Forecast API every 10 minutes by default.
+- Polls Open-Meteo Forecast API every 1 minute by default.
 - Fetches current temperature, apparent temperature, wind, weather code, rain probability, and UV index.
 - Upserts one latest `weather_reports` row per city.
 - Writes `worker_runs` rows so the frontend can show worker health.
@@ -74,7 +74,6 @@ Railway worker:
 ```txt
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
-POLL_INTERVAL_MS=600000
+POLL_INTERVAL_MS=60000
 RUN_ONCE=false
 ```
-

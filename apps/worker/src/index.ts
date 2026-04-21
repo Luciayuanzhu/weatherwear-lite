@@ -30,7 +30,7 @@ type OpenMeteoForecast = {
 
 const supabaseUrl = mustGetEnv("SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
 const serviceRoleKey = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
-const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? "600000");
+const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? "60000");
 const runOnce = process.env.RUN_ONCE === "true";
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
