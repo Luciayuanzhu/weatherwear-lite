@@ -450,7 +450,11 @@ export default function HomePage() {
               <option value="celsius">Celsius</option>
             </select>
 
-            <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="sensitivity">
+            <label
+              className="mt-4 block cursor-help text-sm font-medium text-slate-700"
+              htmlFor="sensitivity"
+              title="Personalizes outfit advice and comfort scores. Runs cold means the app treats cool weather as feeling colder; runs warm means it treats cool weather as easier to handle."
+            >
               Temperature feel
             </label>
             <select
@@ -603,7 +607,12 @@ function WeatherCard({
               </p>
             </div>
             <div className="rounded-md bg-mist px-3 py-2 text-right">
-              <p className="text-xs font-medium uppercase text-slate-500">Score</p>
+              <p
+                className="cursor-help text-xs font-medium uppercase text-slate-500"
+                title="Comfort score from 0 to 100 based on feels-like temperature, rain probability, wind speed, and your temperature feel preference."
+              >
+                Score
+              </p>
               <p className="text-2xl font-semibold text-leaf">{advice?.score}</p>
             </div>
           </div>
@@ -630,8 +639,8 @@ function WeatherCard({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-md bg-mist p-2">
-      <dt className="truncate text-xs font-medium uppercase text-slate-500">{label}</dt>
-      <dd className="mt-1 truncate font-semibold text-ink">{value}</dd>
+      <dt className="text-xs font-medium uppercase text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words font-semibold leading-snug text-ink">{value}</dd>
     </div>
   );
 }
