@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { hasSupabaseEnv, supabase } from "@/lib/supabase";
 import type { City, UserPreferences, WeatherReport, WorkerRun } from "@/lib/types";
+import { WeatherParticles } from "@/components/WeatherParticles";
 
 const DEFAULT_PREFERENCES = {
   temp_unit: "fahrenheit" as TempUnit,
@@ -684,7 +685,8 @@ function WeatherCard({
   return (
     <article className="relative isolate overflow-hidden rounded-lg border border-line bg-field p-4 shadow-soft">
       {report ? (
-        <WeatherOverlay
+        <WeatherParticles
+          id={city.id}
           observedAt={report.observed_at}
           timezone={city.timezone}
           weatherCode={report.weather_code}
@@ -777,63 +779,6 @@ function AdviceLine({ icon, text }: { icon: React.ReactNode; text: string }) {
       <span>{text}</span>
     </p>
   );
-}
-
-function WeatherOverlay({
-  weatherCode,
-  observedAt,
-  timezone
-}: {
-  weatherCode?: number | null;
-  observedAt?: string | null;
-  timezone?: string | null;
-}) {
-  const effect = weatherEffect(weatherCode, observedAt, timezone);
-
-  return (
-    <div aria-hidden="true" className={`weather-overlay weather-${effect}`}>
-      <span className="weather-layer weather-layer-one" />
-      <span className="weather-layer weather-layer-two" />
-    </div>
-  );
-}
-
-function weatherEffect(
-  weatherCode?: number | null,
-  observedAt?: string | null,
-  timezone?: string | null
-) {
-  if (weatherCode === 0) return isNight(observedAt, timezone) ? "stars" : "sun";
-  if (weatherCode != null && [1, 2, 3].includes(weatherCode)) return "clouds";
-  if (weatherCode != null && [45, 48].includes(weatherCode)) return "fog";
-  if (weatherCode != null && [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(weatherCode)) {
-    return "rain";
-  }
-  if (weatherCode != null && [71, 73, 75, 77, 85, 86].includes(weatherCode)) return "snow";
-  if (weatherCode != null && [95, 96, 99].includes(weatherCode)) return "storm";
-  return "calm";
-}
-
-function isNight(observedAt?: string | null, timezone?: string | null) {
-  const date = observedAt ? new Date(observedAt) : null;
-  if (!date || Number.isNaN(date.getTime())) return false;
-
-  if (timezone && timezone !== "auto") {
-    try {
-      const hour = Number(
-        new Intl.DateTimeFormat("en-US", {
-          hour: "2-digit",
-          hourCycle: "h23",
-          timeZone: timezone
-        }).format(date)
-      );
-      return hour < 6 || hour >= 19;
-    } catch {
-      return date.getUTCHours() < 6 || date.getUTCHours() >= 19;
-    }
-  }
-
-  return date.getUTCHours() < 6 || date.getUTCHours() >= 19;
 }
 
 function InfoTooltip({ text }: { text: string }) {
