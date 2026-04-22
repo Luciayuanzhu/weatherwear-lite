@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   buildWeatherAdvice,
@@ -26,7 +26,6 @@ import {
   Umbrella,
   Wind
 } from "lucide-react";
-import { WeatherAtmosphere } from "@/components/WeatherAtmosphere";
 import { hasSupabaseEnv, supabase } from "@/lib/supabase";
 import type { City, UserPreferences, WeatherReport, WorkerRun } from "@/lib/types";
 
@@ -34,6 +33,61 @@ const DEFAULT_PREFERENCES = {
   temp_unit: "fahrenheit" as TempUnit,
   sensitivity: "balanced" as Sensitivity
 };
+
+type WeatherSceneKey = "calm" | "clouds" | "fog" | "night" | "rain" | "snow" | "storm" | "sunny";
+
+type WeatherScene = {
+  image: string;
+  label: string;
+  position: string;
+};
+
+const WEATHER_SCENES: Record<WeatherSceneKey, WeatherScene> = {
+  calm: {
+    image: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=82",
+    label: "open outdoor weather scene",
+    position: "center"
+  },
+  clouds: {
+    image: "https://images.unsplash.com/photo-1499346030926-9a72daac6c63?auto=format&fit=crop&w=1800&q=82",
+    label: "cloudy sky",
+    position: "center"
+  },
+  fog: {
+    image: "https://images.unsplash.com/photo-1512798738109-af8814836728?auto=format&fit=crop&w=1800&q=82",
+    label: "foggy street",
+    position: "center"
+  },
+  night: {
+    image: "https://images.unsplash.com/photo-1475274047050-1d0c0975c63e?auto=format&fit=crop&w=1800&q=82",
+    label: "clear night sky",
+    position: "center"
+  },
+  rain: {
+    image: "https://images.unsplash.com/photo-1519692933481-e162a57d6721?auto=format&fit=crop&w=1800&q=82",
+    label: "rainy city street",
+    position: "center"
+  },
+  snow: {
+    image: "https://images.unsplash.com/photo-1483664852095-d6cc6870702d?auto=format&fit=crop&w=1800&q=82",
+    label: "snowy landscape",
+    position: "center"
+  },
+  storm: {
+    image: "https://images.unsplash.com/photo-1500674425229-f692875b0ab7?auto=format&fit=crop&w=1800&q=82",
+    label: "thunderstorm",
+    position: "center"
+  },
+  sunny: {
+    image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1800&q=82",
+    label: "sunlit sky",
+    position: "center"
+  }
+};
+
+const RAIN_CODES = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82]);
+const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
+const STORM_CODES = new Set([95, 96, 99]);
 
 type CityLinkRow = {
   city_id: string;
@@ -396,6 +450,8 @@ export default function HomePage() {
     if (!timestamps.length) return null;
     return new Date(Math.max(...timestamps)).toISOString();
   }, [reports]);
+  const featuredCity = savedCities[0] ?? null;
+  const remainingSavedCities = savedCities.slice(1);
 
   if (loading) {
     return (
@@ -634,18 +690,33 @@ export default function HomePage() {
               </p>
             </section>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {savedCities.map((city) => (
+            <div className="space-y-4">
+              {featuredCity ? (
                 <WeatherCard
-                  city={city}
-                  key={city.id}
-                  onRemove={() => removeCity(city.id)}
-                  onRefresh={() => void refreshWeatherNow({ cityId: city.id })}
+                  city={featuredCity}
+                  onRemove={() => removeCity(featuredCity.id)}
+                  onRefresh={() => void refreshWeatherNow({ cityId: featuredCity.id })}
                   preferences={preferences}
-                  report={reports[city.id]}
+                  report={reports[featuredCity.id]}
                   refreshing={refreshing}
+                  variant="hero"
                 />
-              ))}
+              ) : null}
+              {remainingSavedCities.length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {remainingSavedCities.map((city) => (
+                    <WeatherCard
+                      city={city}
+                      key={city.id}
+                      onRemove={() => removeCity(city.id)}
+                      onRefresh={() => void refreshWeatherNow({ cityId: city.id })}
+                      preferences={preferences}
+                      report={reports[city.id]}
+                      refreshing={refreshing}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           )}
         </section>
@@ -660,7 +731,8 @@ function WeatherCard({
   preferences,
   onRemove,
   onRefresh,
-  refreshing
+  refreshing,
+  variant = "card"
 }: {
   city: City;
   report?: WeatherReport;
@@ -668,8 +740,29 @@ function WeatherCard({
   onRemove: () => void;
   onRefresh: () => void;
   refreshing: boolean;
+  variant?: "card" | "hero";
 }) {
   const unit = preferences?.temp_unit ?? DEFAULT_PREFERENCES.temp_unit;
+  const sceneKey = report ? weatherSceneKey(report.weather_code, report.observed_at, city.timezone) : null;
+  const scene = sceneKey ? WEATHER_SCENES[sceneKey] : null;
+  const sceneStyle = scene
+    ? ({
+        "--weather-scene-image": `url("${scene.image}")`,
+        "--weather-scene-position": scene.position
+      } as CSSProperties)
+    : undefined;
+  const isHero = variant === "hero";
+  const articleClass = [
+    "relative isolate flex overflow-hidden rounded-lg border shadow-soft",
+    scene ? "border-white/20 bg-slate-950" : "border-line bg-field",
+    scene && isHero ? "min-h-[520px] p-5 md:min-h-[460px] md:p-6" : "",
+    scene && !isHero ? "min-h-[440px] p-4" : "",
+    !scene ? "p-4" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const headingClass = scene ? "text-white drop-shadow-sm" : "text-ink";
+  const mutedClass = scene ? "text-white/80 drop-shadow-sm" : "text-slate-600";
   const advice = report
     ? buildWeatherAdvice({
         temperatureF: Number(report.temperature_f),
@@ -683,98 +776,126 @@ function WeatherCard({
     : null;
 
   return (
-    <article className="relative isolate overflow-hidden rounded-lg border border-line bg-field p-4 shadow-soft">
-      {report ? (
-        <WeatherAtmosphere
-          id={city.id}
-          observedAt={report.observed_at}
-          timezone={city.timezone}
-          weatherCode={report.weather_code}
-        />
+    <article className={articleClass} style={sceneStyle}>
+      {scene ? (
+        <>
+          <div aria-label={scene.label} className="weather-scene-photo" role="img" />
+          <div aria-hidden="true" className="weather-scene-shade" />
+        </>
       ) : null}
-      <div className="relative z-10 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold">{city.name}</h3>
-          <p className="text-sm text-slate-600">
-            {[city.admin1, city.country].filter(Boolean).join(", ")}
-          </p>
-        </div>
-        <button
-          aria-label={`Remove ${city.name}`}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-line text-slate-600 hover:bg-mist"
-          onClick={onRemove}
-          title={`Remove ${city.name}`}
-          type="button"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
-
-      {!report ? (
-        <div className="relative z-10 mt-8 rounded-md bg-mist p-4 text-sm text-slate-600">
-          <p className="font-medium text-ink">Waiting for current weather</p>
-          <p className="mt-1">This city will fill in on the next refresh.</p>
+      <div className="relative z-10 flex flex-1 flex-col">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className={`${isHero ? "text-2xl md:text-3xl" : "text-lg"} font-semibold ${headingClass}`}>
+              {city.name}
+            </h3>
+            <p className={`text-sm ${mutedClass}`}>{[city.admin1, city.country].filter(Boolean).join(", ")}</p>
+          </div>
           <button
-            className="mt-3 inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium text-ink disabled:opacity-60"
-            disabled={refreshing}
-            onClick={onRefresh}
+            aria-label={`Remove ${city.name}`}
+            className={
+              scene
+                ? "inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/25 bg-white/15 text-white shadow-sm backdrop-blur-md hover:bg-white/25"
+                : "inline-flex h-9 w-9 items-center justify-center rounded-md border border-line text-slate-600 hover:bg-mist"
+            }
+            onClick={onRemove}
+            title={`Remove ${city.name}`}
             type="button"
           >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Fetch now
+            <Trash2 className="h-4 w-4" />
           </button>
         </div>
-      ) : (
-        <div className="relative z-10">
-          <div className="mt-5 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-4xl font-semibold leading-none">
-                {formatTemperature(Number(report.temperature_f), unit)}
-              </p>
-              <p className="mt-2 text-sm text-slate-600">
-                Feels {formatTemperature(Number(report.apparent_temperature_f), unit)}
-              </p>
-            </div>
-            <div className="rounded-md bg-mist px-3 py-2 text-right">
-              <div className="flex items-center justify-end gap-1.5">
-                <p className="text-xs font-medium uppercase text-slate-500">Score</p>
-                <InfoTooltip text="Comfort score from 0 to 100 based on feels-like temperature, rain probability, wind speed, and your temperature feel preference." />
+
+        {!report ? (
+          <div className="mt-8 rounded-md bg-mist p-4 text-sm text-slate-600">
+            <p className="font-medium text-ink">Waiting for current weather</p>
+            <p className="mt-1">This city will fill in on the next refresh.</p>
+            <button
+              className="mt-3 inline-flex items-center gap-2 rounded-md border border-line bg-field px-3 py-2 text-sm font-medium text-ink disabled:opacity-60"
+              disabled={refreshing}
+              onClick={onRefresh}
+              type="button"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              Fetch now
+            </button>
+          </div>
+        ) : (
+          <div className={`flex flex-1 flex-col ${scene ? "justify-end pt-16" : ""}`}>
+            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p
+                  className={`whitespace-nowrap font-semibold leading-none ${
+                    isHero ? "text-5xl md:text-6xl" : "text-4xl"
+                  } ${scene ? "text-white drop-shadow-sm" : "text-ink"}`}
+                >
+                  {formatTemperature(Number(report.temperature_f), unit)}
+                </p>
+                <p className={`mt-2 text-sm ${mutedClass}`}>
+                  Feels {formatTemperature(Number(report.apparent_temperature_f), unit)}
+                </p>
               </div>
-              <p className="text-2xl font-semibold text-leaf">{advice?.score}</p>
+              <div
+                className={
+                  scene
+                    ? "w-fit rounded-md border border-white/25 bg-white/80 px-3 py-2 text-right text-slate-950 shadow-sm backdrop-blur-md sm:w-auto"
+                    : "w-fit rounded-md bg-mist px-3 py-2 text-right sm:w-auto"
+                }
+              >
+                <div className="flex items-center justify-end gap-1.5">
+                  <p className="text-xs font-medium uppercase text-slate-500">Score</p>
+                  <InfoTooltip text="Comfort score from 0 to 100 based on feels-like temperature, rain probability, wind speed, and your temperature feel preference." />
+                </div>
+                <p className="text-2xl font-semibold text-leaf">{advice?.score}</p>
+              </div>
             </div>
+
+            <dl className="mt-5 grid grid-cols-3 gap-2 text-sm">
+              <Metric label="Sky" scene={Boolean(scene)} value={weatherCodeLabel(report.weather_code)} />
+              <Metric label="Rain" scene={Boolean(scene)} value={`${report.precipitation_probability}%`} />
+              <Metric label="Wind" scene={Boolean(scene)} value={formatWind(Number(report.wind_speed_mph))} />
+            </dl>
+
+            <div className={isHero ? "mt-5 grid gap-2 md:grid-cols-3" : "mt-5 space-y-2"}>
+              <AdviceLine icon={<CloudSun className="h-4 w-4" />} scene={Boolean(scene)} text={advice?.outfit ?? ""} />
+              <AdviceLine icon={<Umbrella className="h-4 w-4" />} scene={Boolean(scene)} text={advice?.umbrella ?? ""} />
+              <AdviceLine icon={<Wind className="h-4 w-4" />} scene={Boolean(scene)} text={advice?.comfort ?? ""} />
+            </div>
+
+            <p className={`mt-5 text-xs ${scene ? "text-white/75 drop-shadow-sm" : "text-slate-500"}`}>
+              Updated {relativeTime(report.updated_at)}
+            </p>
           </div>
-
-          <dl className="mt-5 grid grid-cols-3 gap-2 text-sm">
-            <Metric label="Sky" value={weatherCodeLabel(report.weather_code)} />
-            <Metric label="Rain" value={`${report.precipitation_probability}%`} />
-            <Metric label="Wind" value={formatWind(Number(report.wind_speed_mph))} />
-          </dl>
-
-          <div className="mt-5 space-y-2">
-            <AdviceLine icon={<CloudSun className="h-4 w-4" />} text={advice?.outfit ?? ""} />
-            <AdviceLine icon={<Umbrella className="h-4 w-4" />} text={advice?.umbrella ?? ""} />
-            <AdviceLine icon={<Wind className="h-4 w-4" />} text={advice?.comfort ?? ""} />
-          </div>
-
-          <p className="mt-5 text-xs text-slate-500">Updated {relativeTime(report.updated_at)}</p>
-        </div>
-      )}
+        )}
+      </div>
     </article>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, scene = false }: { label: string; value: string; scene?: boolean }) {
   return (
-    <div className="min-w-0 rounded-md bg-mist p-2">
+    <div
+      className={
+        scene
+          ? "min-h-[5.5rem] min-w-0 rounded-md border border-white/25 bg-white/80 p-3 shadow-sm backdrop-blur-md"
+          : "min-h-[5.5rem] min-w-0 rounded-md bg-mist p-3"
+      }
+    >
       <dt className="text-xs font-medium uppercase text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words font-semibold leading-snug text-ink">{value}</dd>
+      <dd className="mt-1 whitespace-normal break-words font-semibold leading-snug text-ink">{value}</dd>
     </div>
   );
 }
 
-function AdviceLine({ icon, text }: { icon: React.ReactNode; text: string }) {
+function AdviceLine({ icon, text, scene = false }: { icon: ReactNode; text: string; scene?: boolean }) {
   return (
-    <p className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-slate-700">
+    <p
+      className={
+        scene
+          ? "flex items-center gap-2 rounded-md border border-white/25 bg-white/75 px-3 py-2 text-sm text-slate-900 shadow-sm backdrop-blur-md"
+          : "flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-slate-700"
+      }
+    >
       <span className="text-sky">{icon}</span>
       <span>{text}</span>
     </p>
@@ -827,6 +948,42 @@ function WorkerStatus({ workerRun }: { workerRun: WorkerRun | null }) {
       Worker {workerRun.status} · {relativeTime(workerRun.finished_at ?? workerRun.started_at)}
     </span>
   );
+}
+
+function weatherSceneKey(
+  weatherCode?: number | null,
+  observedAt?: string | null,
+  timezone?: string | null
+): WeatherSceneKey {
+  if (weatherCode === 0) return isNight(observedAt, timezone) ? "night" : "sunny";
+  if (weatherCode != null && [1, 2, 3].includes(weatherCode)) return "clouds";
+  if (weatherCode != null && [45, 48].includes(weatherCode)) return "fog";
+  if (weatherCode != null && RAIN_CODES.has(weatherCode)) return "rain";
+  if (weatherCode != null && SNOW_CODES.has(weatherCode)) return "snow";
+  if (weatherCode != null && STORM_CODES.has(weatherCode)) return "storm";
+  return "calm";
+}
+
+function isNight(observedAt?: string | null, timezone?: string | null) {
+  const date = observedAt ? new Date(observedAt) : null;
+  if (!date || Number.isNaN(date.getTime())) return false;
+
+  if (timezone && timezone !== "auto") {
+    try {
+      const hour = Number(
+        new Intl.DateTimeFormat("en-US", {
+          hour: "2-digit",
+          hourCycle: "h23",
+          timeZone: timezone
+        }).format(date)
+      );
+      return hour < 6 || hour >= 19;
+    } catch {
+      return date.getUTCHours() < 6 || date.getUTCHours() >= 19;
+    }
+  }
+
+  return date.getUTCHours() < 6 || date.getUTCHours() >= 19;
 }
 
 function relativeTime(value: string): string {
