@@ -26,9 +26,9 @@ import {
   Umbrella,
   Wind
 } from "lucide-react";
+import { WeatherAtmosphere } from "@/components/WeatherAtmosphere";
 import { hasSupabaseEnv, supabase } from "@/lib/supabase";
 import type { City, UserPreferences, WeatherReport, WorkerRun } from "@/lib/types";
-import { WeatherParticles } from "@/components/WeatherParticles";
 
 const DEFAULT_PREFERENCES = {
   temp_unit: "fahrenheit" as TempUnit,
@@ -685,7 +685,7 @@ function WeatherCard({
   return (
     <article className="relative isolate overflow-hidden rounded-lg border border-line bg-field p-4 shadow-soft">
       {report ? (
-        <WeatherParticles
+        <WeatherAtmosphere
           id={city.id}
           observedAt={report.observed_at}
           timezone={city.timezone}
