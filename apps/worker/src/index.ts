@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
-import { buildWeatherReport } from "../../../packages/shared/src/polling";
+import { buildWeatherReports, type WeatherReportPayload } from "../../../packages/shared/src/polling";
 
 type CityRow = {
   id: string;
@@ -15,8 +15,7 @@ type CityRow = {
 
 const supabaseUrl = mustGetEnv("SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
 const serviceRoleKey = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
-const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? "300000");
-const cityPollDelayMs = Number(process.env.CITY_POLL_DELAY_MS ?? "1000");
+const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? "60000");
 const runOnce = process.env.RUN_ONCE === "true";
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -27,9 +26,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 });
 
 async function main() {
-  console.log(
-    `WeatherWear worker starting. interval=${pollIntervalMs}ms cityDelay=${cityPollDelayMs}ms runOnce=${runOnce}`
-  );
+  console.log(`WeatherWear worker starting. interval=${pollIntervalMs}ms runOnce=${runOnce}`);
   await pollOnce();
 
   if (runOnce) return;
@@ -44,7 +41,6 @@ async function main() {
 async function pollOnce() {
   const runId = await startWorkerRun();
   let citiesPolled = 0;
-  const failures: string[] = [];
 
   try {
     const { data: cities, error } = await supabase
@@ -54,32 +50,17 @@ async function pollOnce() {
 
     if (error) throw error;
 
-    for (const city of (cities ?? []) as CityRow[]) {
-      try {
-        await pollCity(city);
-        citiesPolled += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        failures.push(`${city.name}: ${message}`);
-        console.error(`Failed to update ${city.name}`, error);
-      }
+    const cityRows = (cities ?? []) as CityRow[];
+    const cityNames = new Map(cityRows.map((city) => [city.id, city.name]));
+    const reports = await buildWeatherReports(cityRows);
 
-      if (cityPollDelayMs > 0) {
-        await delay(cityPollDelayMs);
-      }
+    for (const report of reports) {
+      await saveReport(report, cityNames.get(report.city_id));
+      citiesPolled += 1;
     }
 
-    if (failures.length > 0 && citiesPolled === 0) {
-      throw new Error(failures.slice(0, 3).join("; "));
-    }
-
-    await finishWorkerRun(
-      runId,
-      "success",
-      citiesPolled,
-      failures.length > 0 ? `${failures.length} cities skipped: ${failures.slice(0, 3).join("; ")}` : undefined
-    );
-    console.log(`Poll complete. cities=${citiesPolled} failures=${failures.length}`);
+    await finishWorkerRun(runId, "success", citiesPolled);
+    console.log(`Poll complete. cities=${citiesPolled}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await finishWorkerRun(runId, "error", citiesPolled, message);
@@ -87,13 +68,11 @@ async function pollOnce() {
   }
 }
 
-async function pollCity(city: CityRow) {
-  const report = await buildWeatherReport(city);
-
+async function saveReport(report: WeatherReportPayload, cityName?: string) {
   const { error } = await supabase.from("weather_reports").upsert(report, { onConflict: "city_id" });
 
   if (error) throw error;
-  console.log(`Updated ${city.name}: ${Math.round(report.temperature_f)}F, ${report.summary}`);
+  console.log(`Updated ${cityName ?? report.city_id}: ${Math.round(report.temperature_f)}F, ${report.summary}`);
 }
 
 async function startWorkerRun(): Promise<string> {
@@ -130,12 +109,6 @@ function mustGetEnv(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
   if (!value) throw new Error(`Missing required env var: ${name}`);
   return value;
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 main().catch((error) => {
