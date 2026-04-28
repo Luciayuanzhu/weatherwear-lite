@@ -15,7 +15,8 @@ type CityRow = {
 
 const supabaseUrl = mustGetEnv("SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL);
 const serviceRoleKey = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
-const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? "60000");
+const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? "300000");
+const cityPollDelayMs = Number(process.env.CITY_POLL_DELAY_MS ?? "1000");
 const runOnce = process.env.RUN_ONCE === "true";
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -26,7 +27,9 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 });
 
 async function main() {
-  console.log(`WeatherWear worker starting. interval=${pollIntervalMs}ms runOnce=${runOnce}`);
+  console.log(
+    `WeatherWear worker starting. interval=${pollIntervalMs}ms cityDelay=${cityPollDelayMs}ms runOnce=${runOnce}`
+  );
   await pollOnce();
 
   if (runOnce) return;
@@ -41,6 +44,7 @@ async function main() {
 async function pollOnce() {
   const runId = await startWorkerRun();
   let citiesPolled = 0;
+  const failures: string[] = [];
 
   try {
     const { data: cities, error } = await supabase
@@ -51,12 +55,31 @@ async function pollOnce() {
     if (error) throw error;
 
     for (const city of (cities ?? []) as CityRow[]) {
-      await pollCity(city);
-      citiesPolled += 1;
+      try {
+        await pollCity(city);
+        citiesPolled += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`${city.name}: ${message}`);
+        console.error(`Failed to update ${city.name}`, error);
+      }
+
+      if (cityPollDelayMs > 0) {
+        await delay(cityPollDelayMs);
+      }
     }
 
-    await finishWorkerRun(runId, "success", citiesPolled);
-    console.log(`Poll complete. cities=${citiesPolled}`);
+    if (failures.length > 0 && citiesPolled === 0) {
+      throw new Error(failures.slice(0, 3).join("; "));
+    }
+
+    await finishWorkerRun(
+      runId,
+      "success",
+      citiesPolled,
+      failures.length > 0 ? `${failures.length} cities skipped: ${failures.slice(0, 3).join("; ")}` : undefined
+    );
+    console.log(`Poll complete. cities=${citiesPolled} failures=${failures.length}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await finishWorkerRun(runId, "error", citiesPolled, message);
@@ -107,6 +130,12 @@ function mustGetEnv(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
   if (!value) throw new Error(`Missing required env var: ${name}`);
   return value;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 main().catch((error) => {

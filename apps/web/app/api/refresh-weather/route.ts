@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { buildWeatherReport, type PollCity } from "@weatherwear/shared";
 
 export const runtime = "nodejs";
+const CITY_REFRESH_DELAY_MS = 500;
 
 type CityRow = PollCity & {
   slug: string;
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
   }
 
   let citiesPolled = 0;
+  const failures: string[] = [];
 
   try {
     let cityQuery = supabase
@@ -99,20 +101,49 @@ export async function POST(request: Request) {
     if (cityError) throw cityError;
 
     for (const city of (cities ?? []) as CityRow[]) {
-      const report = await buildWeatherReport(city);
-      const { error: reportError } = await supabase
-        .from("weather_reports")
-        .upsert(report, { onConflict: "city_id" });
+      try {
+        const report = await buildWeatherReport(city);
+        const { error: reportError } = await supabase
+          .from("weather_reports")
+          .upsert(report, { onConflict: "city_id" });
 
-      if (reportError) throw reportError;
-      citiesPolled += 1;
+        if (reportError) throw reportError;
+        citiesPolled += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (cityId) throw error;
+        failures.push(`${city.name}: ${message}`);
+      }
+
+      if (!cityId) {
+        await delay(CITY_REFRESH_DELAY_MS);
+      }
     }
 
-    await finishRun(run.id as string, "success", citiesPolled);
-    return NextResponse.json({ status: "success", citiesPolled });
+    if (failures.length > 0 && citiesPolled === 0) {
+      throw new Error(failures.slice(0, 3).join("; "));
+    }
+
+    await finishRun(
+      run.id as string,
+      "success",
+      citiesPolled,
+      failures.length > 0 ? `${failures.length} cities skipped: ${failures.slice(0, 3).join("; ")}` : undefined
+    );
+    return NextResponse.json({
+      status: failures.length > 0 ? "partial_success" : "success",
+      citiesPolled,
+      citiesSkipped: failures.length
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await finishRun(run.id as string, "error", citiesPolled, message);
     return NextResponse.json({ error: message, citiesPolled }, { status: 500 });
   }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

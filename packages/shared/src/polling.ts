@@ -74,12 +74,21 @@ async function fetchForecast(city: PollCity): Promise<OpenMeteoForecast> {
   url.searchParams.set("forecast_days", "1");
   url.searchParams.set("timezone", city.timezone ?? "auto");
 
-  const response = await fetch(url);
-  if (!response.ok) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const response = await fetch(url);
+    if (response.ok) {
+      return (await response.json()) as OpenMeteoForecast;
+    }
+
+    if (attempt < 2 && (response.status === 429 || response.status >= 500)) {
+      await delay(1500 * attempt);
+      continue;
+    }
+
     throw new Error(`Open-Meteo ${response.status} for ${city.name}`);
   }
 
-  return (await response.json()) as OpenMeteoForecast;
+  throw new Error(`Open-Meteo request failed for ${city.name}`);
 }
 
 function nextSixHourMax(values?: Array<number | null>): number {
@@ -94,3 +103,8 @@ function nextSixHourMax(values?: Array<number | null>): number {
   );
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
